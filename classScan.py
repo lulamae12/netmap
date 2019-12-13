@@ -1,119 +1,149 @@
 from getmac import getmac
-import os,time,sys,json,socket
+import os,time,sys,json,socket,subprocess,ipaddress,signal
+from netaddr import *
+from ipaddress import ip_network
+
 from urllib.request import urlopen
 validAddresses = {}
 validAddresses["Devices"] = []
-class DecodeDevices():
+
+   
+
+
+
+class ScanNetwork():
     def __init__(self):
-        print("decoding File")
-        self.deviceJsonData = self.loadDict("devices.json")
+        
+        #os.system('cls')
+        machineIpAddress = socket.gethostbyname(socket.gethostname())
+        print("IP of this machine: ",machineIpAddress)
+        rangeMin = int(input("\nMinimum value of ip address: "))
+        rangeMax = int(input("\nMaxium value of ip address: "))
+        octetCount = int(input("\nOctets to iterate through (default = 1): "))
+        ipPrefix = input("\nIP prefix : ")
+        self.traceRouteQ = input("\nTrace Routes?: ")
         self.macAddrData = self.loadDict("macAddreses.json")
-        self.getMacVendorSeg()
+        ipPrefix = ipPrefix + "."
+        self.ipPrefix = ipPrefix
+        networkID = self.ipPrefix + "0"
+        
 
+        #self.iterThroughIpsBrute(rangeMin,rangeMax)
+        if octetCount == 1:
+            self.iterThroughIps(rangeMin,rangeMax+1)
+        if octetCount == 2:
+            self.iterThroughIpsTwo(rangeMin,rangeMax+1)
+        if octetCount == 3:
+            self.iterThroughIpsThree(rangeMin,rangeMax+1)
+        if octetCount == 4:
+            self.iterThroughIpsFour(rangeMin,rangeMax+1)
 
-    def getMacVendorSeg(self):#gets vendor segment and rewrite file
-        devs = {}
-        devs["Devices"] = []
+    def traceRoutes(self,ip):
+        hopList = []
+        result = subprocess.Popen(["tracert","-h","5",ip],stdout=subprocess.PIPE)
+        result = result.communicate()[0]
+        #print("Resul: ",result)
+        resultSplit = result.decode("utf-8").split("\r\n")
+        
+        for item in resultSplit:
+            if "ms" in item:
+                hop = item.replace("\r\n","")
+                hopList.append(hop)
+
+        #print(resultSplit)
+        print(hopList)
+        hopCount = len(hopList)
+        print(hopCount)
+        return hopCount
+    def scanForMac(self,last):
         
         
-        for item in self.deviceJsonData["Devices"]:
-            macAddress = item["MAC"]
-            ip = item["IP"]
-            print("mac addr",macAddress)
-            vendorID = macAddress.split(":",3)
+        vend = ""
+        data = {}
+        hopCount = 1
+        data["IP info"] = []
+        address = str(self.ipPrefix) + str(last)
+        IP = address
+        
+        
+        hostname = IP
+        
+        if "y" in self.traceRouteQ or "1" in self.traceRouteQ:
+            hopCount = self.traceRoutes(IP)
+        
+
+        print("\n Scanning IP: ",IP,"\n")
+        print(socket.getfqdn(IP))
+       
+        macAddress = getmac.get_mac_address(ip=str(address))
+
+        if macAddress:
+            vendor = self.findVendor(macAddress)
+            try:
+                hostname,aliasList,lanIP = socket.gethostbyaddr(socket.gethostbyname(IP))
+            except:
+                hostname = ""
+                pass
             
-            vendorID = vendorID[0].upper() + vendorID[1].upper() + vendorID[2].upper()
+            addressDict = {
+                "IP": IP,
+                "MAC": macAddress,
+                "Vendor":vendor,
+                "Hostname":hostname,
+                "Hops":hopCount
+                
+                
+            }
+            print("Received",IP)
+            print(addressDict)
+            validAddresses["Devices"].append(addressDict)
             
-            print(vendorID)
-            
-            for address in self.macAddrData["Macs"]:
+    def findVendor(self,macAddress):
+        vendorID = macAddress.split(":",3)
+        vendorID = vendorID[0].upper() + vendorID[1].upper() + vendorID[2].upper()    
+        for address in self.macAddrData["Macs"]:
                 if address["address"] == vendorID:
                     addr = address["address"]
-                    vend = address["vendor"]
-                    hostname = socket.gethostbyname_ex(ip)
-                  
-                    print(hostname)
-                              
+                    vendor = address["vendor"]
+                    return vendor
 
 
 
-                    addressDict = {
-                        "IP": ip,
-                        "MAC": macAddress,
-                        "Vendor":vend,
-                        "Hostname":hostname
-                    }
-                
-                    devs["Devices"].append(addressDict)
+    def iterThroughIps(self,rangeMin,rangeMax ):
+        for i in range(int(rangeMin),int((rangeMax))):
+            self.scanForMac(i)
+            
+        self.saveDict()
+    def iterThroughIpsTwo(self,rangeMin,rangeMax ):
+        for i in range(int(rangeMin),int((rangeMax))):
+            for j in range(int(rangeMin),int((rangeMax))):
+                self.scanForMac(str(i)+"."+str(j))
+            
+            self.saveDict()
+    def iterThroughIpsThree(self,rangeMin,rangeMax ):
+        for i in range(int(rangeMin),int((rangeMax))):
+            for j in range(int(rangeMin),int((rangeMax))):
+                for k in range(int(rangeMin),int((rangeMax))):
+                    self.scanForMac(str(i)+"."+str(j)+"."+str(k))
+            
+        self.saveDict()
+    def iterThroughIpsFour(self,rangeMin,rangeMax ):
+        for i in range(int(rangeMin),int((rangeMax))):
+            for j in range(int(rangeMin),int((rangeMax))):
+                for k in range(int(rangeMin),int((rangeMax))):
+                    for l in range(int(rangeMin),int((rangeMax))):
+                        self.scanForMac(str(i)+"."+str(j)+"."+str(k)+"."+str(l))
+        self.saveDict()
 
-        with open("deviceData.json","w") as outFile:
-            json.dump(devs,outFile,indent=4)
+    def saveDict(self):
+        with open("devices.json","w") as outFile:
+            json.dump(validAddresses,outFile,indent=4)
         outFile.close()
-
 
     def loadDict(self,file):
         with open(file) as json_file:
             data = json.load(json_file)
         return data
-    
-   
-
-
-
-class UpdateMacs():
-    def __init__(self):
-        
-        os.system('cls')
-        #rangeMin = int(input("\nMinimum value of ip address: "))
-        #rangeMax = int(input("\nMaxium value of ip address: "))
-        ipPrefix = input("\nFirst three sets of ip address: ")
-        
-        rangeMin = 0
-        rangeMax = 255
-        ipPrefix = ipPrefix + "."
-        
-        self.ipPrefix = ipPrefix
-
-        self.iterThroughIps(rangeMin,rangeMax)
-
-
-    def saveDict(self):
-        
-        with open("devices.json","w") as outFile:
-            json.dump(validAddresses,outFile,indent=4)
-        outFile.close()
-
-    def scanForMac(self,last):
-        
-        
-
-        data = {}
-        data["IP info"] = []
-        os.system('cls')
-        address = str(self.ipPrefix) + str(last)
-        IP = address
-
-        print("\n Scanning IP: ",IP,"\n")
-        print(validAddresses)
-
-
-        macAddress = getmac.get_mac_address(ip=str(address))
-
-        if macAddress:
-            addressDict = {
-                "IP": IP,
-                "MAC": macAddress
-            }
-            print("Received",IP)
-            validAddresses["Devices"].append(addressDict)
-            
-
-
-    def iterThroughIps(self,rangeMin,rangeMax ):
-        for i in range(int(rangeMin),int((rangeMax-1))):
-            os.system('cls')
-            self.scanForMac(i)
-        self.saveDict()
 
 
 class DownloadMacs():
@@ -164,15 +194,19 @@ class DownloadMacs():
         print("Downloaded: ",lineCount," lines")
         print("skipped: ",skipCount," lines")
 
+scan = ScanNetwork()
 
 
+os.system('cls')
+updateMacQuest = input("Update Mac Addresses? : ")
+if "y" in updateMacQuest:
+    DownloadMacs = DownloadMacs()
 
-#DownloadMacs = DownloadMacs()
-
-#time.sleep(3)
+time.sleep(.5)
 os.system('cls')
 updateQuest = input("Scan Network? : ")
 if "y" in updateQuest:
-    update = UpdateMacs()
-
-DecodeDevices()
+    time.sleep(2)
+    os.system('cls')
+    scan = ScanNetwork()
+os.system('cls')
